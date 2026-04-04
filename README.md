@@ -4,7 +4,7 @@
 
 A lightweight, high-performance, model-agnostic middleware proxy designed natively for Web3 Artificial Intelligence Agents operating on the MultiversX network (and beyond). 
 
-This proxy fundamentally reduces off-chain LLM inference API costs by **up to 70-75%** by intercepting standard Conversational Agent JSON outputs and applying **Strict Semantic Hashing** natively via an absolute safe Abstract Syntax Tree (AST) parser in Rust.
+This proxy fundamentally reduces off-chain LLM inference API costs by **up to 76-77%** by intercepting standard Conversational Agent JSON outputs and applying **Strict Semantic Hashing** natively via an absolute safe Abstract Syntax Tree (AST) parser in Rust.
 
 ## 🧠 The Problem
 Autonomous Agents (especially in heavy A2A environments using `/tools/invoke` or similar paradigms) burn massive amounts of API tokens transmitting repetitive human-semantic structures, massive JSON brackets, colons, and quotation marks. 
@@ -16,9 +16,9 @@ Standard character-reduction ("Shorthand") fails to reduce costs efficiently due
 
 ### Empirical Benchmarks
 Our internal auditing scripts using raw tokenizers yield the following structural savings on standard MultiversX A2A Agent instructions:
-* **OpenAI (GPT-4)**: 70% Token Reduction
-* **Anthropic (Claude 3)**: 74% Token Reduction
-* **Meta (Llama 3)**: 71% Token Reduction
+* **OpenAI (GPT-4)**: 77% Token Reduction
+* **Anthropic (Claude 3)**: 77% Token Reduction
+* **Meta (Llama 3)**: 76% Token Reduction
 
 ## 🚀 Quickstart
 

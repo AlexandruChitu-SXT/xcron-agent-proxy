@@ -21,28 +21,11 @@ impl SemanticHasher {
         Self { dictionary: dict }
     }
 
-    /// Compresses a JSON value recursively, turning Objects into Arrays and substituting values.
-    /// This removes the massive overhead of JSON "Keys" when passing payloads to LLMs.
     pub fn hash(&self, mut value: Value) -> Value {
         self.traverse(&mut value);
-        
-        // Flatten schema (Object to Array) to minimize token footprint of Object keys.
-        match value {
-            Value::Object(map) => {
-                let mut flattened = Vec::with_capacity(map.len());
-                for (_k, v) in map {
-                    flattened.push(self.hash(v));
-                }
-                Value::Array(flattened)
-            },
-            Value::Array(mut arr) => {
-                for v in arr.iter_mut() {
-                    *v = self.hash(v.clone());
-                }
-                Value::Array(arr)
-            },
-            _ => value
-        }
+        // Devolvemos el valor intacto estructuralmente pero comprimido semánticamente.
+        // Hemos eliminado el "aplanamiento" a Array para evitar que la API de OpenAI devuelva Error 400.
+        value
     }
 
     fn traverse(&self, value: &mut Value) {
@@ -68,9 +51,17 @@ impl SemanticHasher {
                 let mut new_map = Map::new();
                 for (k, mut v) in obj.clone() {
                     self.traverse(&mut v);
-                    // Drop objects and keys in `hash()`, 
-                    // but we ensure values are traversed safely first to prevent data corruption.
-                    new_map.insert(k, v);
+                    
+                    // Comprimimos también el NOMBRE de la clave (key) si está en el diccionario,
+                    // reduciendo tokens sin destruir la estructura JSON que exige la API.
+                    let mut compressed_key = k.clone();
+                    for (term, hash) in &self.dictionary {
+                        if compressed_key.contains(term) {
+                            compressed_key = compressed_key.replace(term, hash);
+                        }
+                    }
+                    
+                    new_map.insert(compressed_key, v);
                 }
                 *value = Value::Object(new_map);
             }

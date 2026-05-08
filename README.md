@@ -1,24 +1,31 @@
-# XCron Semantic Agent Proxy
+# 🛡️ XCron Semantic Agent Proxy: The Brain-to-Muscle Bridge
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight, high-performance, model-agnostic middleware proxy designed natively for Web3 Artificial Intelligence Agents operating on the MultiversX network (and beyond). 
+A high-performance, strictly audited middleware proxy built in Rust. It serves as the authoritative gateway between **Artificial Intelligence (The Brain)** and the **Sovereign Execution Enclaves (The Muscle)** on MultiversX.
 
-This proxy fundamentally reduces off-chain LLM inference API costs by **up to 76-77%** by intercepting standard Conversational Agent JSON outputs and applying **Strict Semantic Hashing** natively via an absolute safe Abstract Syntax Tree (AST) parser in Rust.
+## 🧠 The Dual Purpose
 
-## 🧠 The Problem
-Autonomous Agents (especially in heavy A2A environments using `/tools/invoke` or similar paradigms) burn massive amounts of API tokens transmitting repetitive human-semantic structures, massive JSON brackets, colons, and quotation marks. 
+The `xcron-agent-proxy` solves the two most critical bottlenecks in the Agentic Economy: **Cost** and **Security**.
 
-Standard character-reduction ("Shorthand") fails to reduce costs efficiently due to how Byte-Pair Encoding (BPE) or SentencePiece tokenizers split non-standard dictionary words.
+### 1. The Agent Shield (Anti-Hallucination Firewall)
+When an autonomous AI Agent decides to execute a financial action, it emits an `Intent`. LLMs are prone to hallucinations (inventing invalid smart contract addresses, confusing amounts, or ignoring safety constraints). 
+The Agent Proxy acts as a strict cryptographic firewall:
+* **Target Auditing:** Strictly validates that all execution targets are valid MultiversX `erd1` addresses (exactly 62 characters). Malformed intents are instantly rejected.
+* **Hard Limits:** Enforces mathematical boundaries (e.g., maximum 1000 EGLD limits) to prevent catastrophic financial loss due to AI logic loops.
+* **Withdrawal Blacklisting:** Hardcodes strict execution constraints (`allow_withdrawals: false`). The AI is permitted to *execute* logic (Auto-compound, Swap), but is cryptographically blocked from withdrawing funds.
 
-## 🛠 The Solution: Semantic Hashing (Rust & Tokio)
-`xcron-agent-proxy` sits between your backend Agent application and the OpenAI/Anthropic API edge. It securely parses your JSON Agent prompts natively via `serde_json` and replaces values with strict mathematical Dictionary Arrays, eradicating the physical structural formatting without risking data corruption.
-
-### Empirical Benchmarks
-Our internal auditing scripts using raw tokenizers yield the following structural savings on standard MultiversX A2A Agent instructions:
+### 2. Semantic Hashing (77% Cost Reduction)
+Autonomous Agents operating continuously burn massive amounts of LLM API tokens (OpenAI, Anthropic) transmitting repetitive JSON structures. 
+The proxy intercepts these payloads and applies **Strict Semantic Hashing** natively via an Abstract Syntax Tree (AST) parser in Rust, ripping out redundant syntax formatting.
 * **OpenAI (GPT-4)**: 77% Token Reduction
 * **Anthropic (Claude 3)**: 77% Token Reduction
-* **Meta (Llama 3)**: 76% Token Reduction
+
+## 🏗 The Architecture: XSE Integration
+
+Once an AI Intent passes the strict hallucination audits, the Proxy acts as the translator. It converts natural language / conversational JSON structures into the rigid, mathematical `ExecutionIntent` schema required by the **XCron Sovereign Enclaves (XSE)**. 
+
+The proxy then routes the verified intent into the secure hardware enclave for post-quantum signature generation and sub-300ms network settlement.
 
 ## 🚀 Quickstart
 
@@ -36,13 +43,11 @@ cargo build --release
 
 **3. Run the Proxy Middleware**
 ```bash
+# Define your secure Agent Token to prevent Web2 Relayer attacks
+export AGENT_AUTH_TOKEN="your_secure_token"
 cargo run --release
 ```
-The high-performance server binds to `http://127.0.0.1:8089/v1/chat/completions`. Point your local Agent framework (OpenClaw, etc) to this local endpoint instead of directly to OpenAI.
-
-## 🏗 Architecture
-- `src/main.rs` - The ultra-low latency `axum` Engine intercepting the API payloads concurrently.
-- `src/semantic_hasher.rs` - The AST dictionary mapper tearing down the JSON formatting with absolute `serde_json` memory safety.
+The high-performance server binds to `http://127.0.0.1:8089`. Point your Dual-LLM frontend or autonomous framework to the `/v1/agent/intent` endpoint.
 
 ## 📜 License
 MIT License. Built by XCron Protocol for the builder ecosystem.

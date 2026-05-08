@@ -97,8 +97,10 @@ async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>
 /// of the on-chain Agent Shield to prevent AI hallucinations.
 async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Value>) -> impl IntoResponse {
     // 🛡️ SECURITY 1: Verify Agent API Key
+    // 🔴 XCRON-PROTECT: Removed silent fallback to dev token.
+    // A missing ENV var in production would allow anyone to bypass the shield using the dev token.
     let valid_api_key = std::env::var("AGENT_AUTH_TOKEN")
-        .unwrap_or_else(|_| "dev_agent_token_2026".to_string()); // Fallback for local testing
+        .expect("FATAL: AGENT_AUTH_TOKEN missing in environment. Refusing to start in insecure mode.");
 
     let is_authorized = headers
         .get("Authorization")
@@ -168,7 +170,7 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
             }
         ],
         "constraints": {
-            "max_slippage_pct": 1.0,
+            "max_slippage_pct": 0.5, // 🛡️ XCRON-PROTECT: Strict 0.5% to kill Flash Loan MEV
             "expires_at": (timestamp + 300).to_string(), // 5 minute expiry
             "allowed_assets": ["EGLD"],
             "allow_withdrawals": false // AI is NOT allowed to withdraw funds, only execute logic

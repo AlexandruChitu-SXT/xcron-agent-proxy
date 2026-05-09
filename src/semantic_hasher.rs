@@ -1,43 +1,49 @@
 use serde_json::{Value, Map};
-use std::collections::HashMap;
+use aho_corasick::AhoCorasick;
 
 /// Traverses a JSON Abstract Syntax Tree (AST) recursively
 /// safely applying the semantic compression dictionary without breaking schema structures.
 pub struct SemanticHasher {
-    dictionary: HashMap<&'static str, &'static str>,
+    ac: AhoCorasick,
+    replacements: Vec<&'static str>,
 }
 
 impl SemanticHasher {
     pub fn new() -> Self {
-        let mut dict = HashMap::new();
-        // Semantic Mapping Dictionary
-        dict.insert("tools/invoke", "Z1");
-        dict.insert("sessions_send", "Z2");
-        dict.insert("execute arbitrage", "Z3");
-        dict.insert("analyze mempool", "Z4");
-        dict.insert("erd1qqqqqqqqqqqqqpgqtzylnzxc20xmd5a9krt8t9l8kndr90rtv7ls639v39", "W1");
-        dict.insert("multiversx", "MX");
+        let patterns = &[
+            "tools/invoke",
+            "sessions_send",
+            "execute arbitrage",
+            "analyze mempool",
+            "erd1qqqqqqqqqqqqqpgqtzylnzxc20xmd5a9krt8t9l8kndr90rtv7ls639v39",
+            "multiversx",
+        ];
+        
+        let replacements = vec![
+            "Z1",
+            "Z2",
+            "Z3",
+            "Z4",
+            "W1",
+            "MX",
+        ];
 
-        Self { dictionary: dict }
+        // AhoCorasick builds an automaton for O(N) multi-pattern matching
+        let ac = AhoCorasick::new(patterns).expect("Failed to build AhoCorasick automaton");
+
+        Self { ac, replacements }
     }
 
     pub fn hash(&self, mut value: Value) -> Value {
         self.traverse(&mut value);
-        // Devolvemos el valor intacto estructuralmente pero comprimido semánticamente.
-        // Hemos eliminado el "aplanamiento" a Array para evitar que la API de OpenAI devuelva Error 400.
         value
     }
 
     fn traverse(&self, value: &mut Value) {
         match value {
             Value::String(s) => {
-                // Perform exact or substring replacements based on dictionary
-                let mut updated = s.clone();
-                for (term, hash) in &self.dictionary {
-                    if updated.contains(term) {
-                        updated = updated.replace(term, hash);
-                    }
-                }
+                // O(N) replacement without loops
+                let updated = self.ac.replace_all(s, &self.replacements);
                 if updated != *s {
                     *value = Value::String(updated);
                 }
@@ -49,19 +55,22 @@ impl SemanticHasher {
             }
             Value::Object(obj) => {
                 let mut new_map = Map::new();
-                for (k, mut v) in obj.clone() {
+                // We use std::mem::take to avoid .clone() which costs memory
+                let old_map = std::mem::take(obj); 
+                for (k, mut v) in old_map {
                     self.traverse(&mut v);
                     
-                    // Comprimimos también el NOMBRE de la clave (key) si está en el diccionario,
-                    // reduciendo tokens sin destruir la estructura JSON que exige la API.
-                    let mut compressed_key = k.clone();
-                    for (term, hash) in &self.dictionary {
-                        if compressed_key.contains(term) {
-                            compressed_key = compressed_key.replace(term, hash);
-                        }
-                    }
+                    let compressed_key = self.ac.replace_all(&k, &self.replacements);
                     
-                    new_map.insert(compressed_key, v);
+                    // 🛡️ XCRON-PROTECT: Vector 21 Fix - Semantic AST Collision Overwrite
+                    // An attacker could send `{"Z1": "malicious", "tools/invoke": "safe"}`.
+                    // The compression turns `tools/invoke` into `Z1`, overwriting the first key 
+                    // and hijacking the prompt structure. We append a conflict suffix to block this.
+                    if new_map.contains_key(&compressed_key) {
+                        new_map.insert(format!("{}_conflict_blocked", compressed_key), v);
+                    } else {
+                        new_map.insert(compressed_key, v);
+                    }
                 }
                 *value = Value::Object(new_map);
             }

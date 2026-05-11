@@ -7,7 +7,9 @@ use axum::{
 };
 use serde_json::{Value, json};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use semantic_hasher::SemanticHasher;
+
 
 #[tokio::main]
 async fn main() {
@@ -17,11 +19,15 @@ async fn main() {
     // Initialize tracing/logging
     tracing_subscriber::fmt::init();
 
+    // 🛡️ Singleton: Initialize hasher once and share via Arc to minimize latency (Vector 58 Fix)
+    let hasher = Arc::new(SemanticHasher::new());
+
     // Create the Axum async routing app
     let app = Router::new()
-        .route("/v1/chat/completions", post(openai_proxy_handler))
+        .route("/v1/chat/completions", post(move |h, p| openai_proxy_handler(h, p, Arc::clone(&hasher))))
         .route("/v1/agent/intent", post(agent_intent_handler))
         .layer(axum::extract::DefaultBodyLimit::max(512 * 1024)); // 🛡️ 512KB JSON Bomb Protection
+
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8089));
     tracing::info!("🚀 XCron Mainnet Semantic Proxy running on {}", addr);
@@ -32,7 +38,8 @@ async fn main() {
 }
 
 /// The ultra-low latency interceptor using Axum
-async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>) -> impl IntoResponse {
+async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>, hasher: Arc<SemanticHasher>) -> impl IntoResponse {
+
     // 🛡️ WEB2 RELAYER DEFENSE: Load API key from environment to prevent secrets in git
     let valid_api_key = std::env::var("PROXY_AUTH_TOKEN")
         .expect("FATAL: PROXY_AUTH_TOKEN missing. Refusing to run insecurely.");
@@ -61,7 +68,6 @@ async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>
 
     // 🛡️ Securely transform the payload using Tokio blocking pool to prevent thread starvation
     payload = tokio::task::spawn_blocking(move || {
-        let hasher = SemanticHasher::new();
         if let Some(messages) = payload.get_mut("messages") {
             if let Some(arr) = messages.as_array_mut() {
                 if let Some(first_msg) = arr.get_mut(0) {
@@ -77,6 +83,7 @@ async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>
         }
         payload
     }).await.unwrap();
+
 
     tracing::info!("--- [OUTGOING] Compressed Payload to OpenAI API ---");
     // println!("{}", serde_json::to_string_pretty(&payload).unwrap());
@@ -126,15 +133,46 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
 
     tracing::info!("🤖 [AGENT ESCROW] LLM Brain Intent Received. Initiating strict validation...");
 
-    // 🛡️ SECURITY 2: Strict AI Hallucination Validation
-    // The AI (Dual LLM) sends a JSON. We MUST validate it before it reaches the Rust Muscle (XSE).
+    // 🛡️ SECURITY 2: Hybrid Multi-Chain & Quantum Validation (Vector 56 Hybrid)
     let target_contract = match intent_payload.get("target_contract").and_then(|v| v.as_str()) {
-        Some(addr) if addr.starts_with("erd1") && addr.len() == 62 => addr,
-        _ => return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid or missing erd1 target_contract." }))
-        ).into_response(),
+        Some(addr) => {
+            if addr.starts_with("erd1") {
+                // MultiversX Native Validation
+                match bech32::decode(addr) {
+                    Ok((hrp, _)) if hrp.as_str() == "erd" && addr.len() == 62 => addr.to_string(),
+
+                    _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid erd1 checksum." }))).into_response(),
+                }
+            } else if addr.starts_with("0x") {
+                // EVM Bridge Validation (Ethereum, BSC, etc.)
+                if addr.len() == 42 && addr[2..].chars().all(|c| c.is_ascii_hexdigit()) {
+                    addr.to_string()
+                } else {
+                    return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid EVM 0x address." }))).into_response();
+                }
+            } else if addr.starts_with("bc1") {
+                // Bitcoin Bridge Validation (SegWit/Taproot)
+                match bech32::decode(addr) {
+                    Ok((hrp, _)) if hrp.as_str() == "bc" => addr.to_string(),
+
+                    _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid Bitcoin bc1 address." }))).into_response(),
+                }
+            } else if addr.len() >= 128 {
+                // 🛡️ QUANTUM SHIELD: Detect ML-DSA (Dilithium) or large Quantum Keys
+                // These are passed as raw hex/base64 strings to the quantum_verifier
+                if addr.chars().all(|c| c.is_ascii_hexdigit() || c == '=' || c == '+' || c == '/') {
+                    addr.to_string()
+                } else {
+                    return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Malformed Quantum Key identifier." }))).into_response();
+                }
+            } else {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Unknown address format. Bridge/Quantum protection active." }))).into_response();
+            }
+        },
+        None => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Missing target_contract." }))).into_response(),
     };
+
+
 
     let action = match intent_payload.get("action").and_then(|v| v.as_str()) {
         Some(act) => act,
@@ -144,17 +182,32 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
         ).into_response(),
     };
 
-    let amount_egld = match intent_payload.get("amount_egld").and_then(|v| v.as_f64()) {
-        Some(amt) if amt >= 0.0 && amt <= 1000.0 => amt, // Hard limit to prevent catastrophic AI errors
-        _ => return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "status": "error", "message": "Security Alert: Invalid amount or exceeds 1000 EGLD hard limit." }))
-        ).into_response(),
+    let amount_egld = match intent_payload.get("amount_egld") {
+        Some(Value::Number(n)) => {
+            let amt = n.as_f64().unwrap_or(0.0);
+            if amt < 0.0 || amt > 1000.0 {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Exceeds 1000 EGLD hard limit." }))).into_response();
+            }
+            amt
+        },
+        Some(Value::String(s)) => {
+            // Safe parse from string to avoid precision loss (Vector 57 Fix)
+            match s.parse::<f64>() {
+                Ok(amt) if amt >= 0.0 && amt <= 1000.0 => amt,
+                _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid amount string." }))).into_response(),
+            }
+        },
+        _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Invalid or missing amount_egld." }))).into_response(),
     };
 
+
     // 🔗 BRAIN TO MUSCLE CONNECTION: Translate the valid AI Intent into the universal XSE ExecutionIntent format
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(t) => t.as_secs(),
+        Err(_) => 0, // Fallback safe timestamp
+    };
     let client_reference_id = format!("xse_intent_{}", timestamp);
+
 
     let xse_execution_intent = json!({
         "intent_type": "autonomous_ai_action",

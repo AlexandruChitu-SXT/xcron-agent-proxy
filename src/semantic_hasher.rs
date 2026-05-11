@@ -35,13 +35,21 @@ impl SemanticHasher {
     }
 
     pub fn hash(&self, mut value: Value) -> Value {
-        self.traverse(&mut value);
+        self.traverse(&mut value, 0);
         value
     }
 
-    fn traverse(&self, value: &mut Value) {
+    fn traverse(&self, value: &mut Value, depth: u8) {
+        // 🛡️ XCRON-PROTECT: Vector 54 Fix - Recursion Depth Limit (Stack Overflow Protection)
+        // Maliciously nested JSON (e.g. 10,000 arrays) could crash the proxy.
+        if depth > 32 {
+            *value = Value::String("ERROR: Max recursion depth exceeded. Potential JSON Bomb detected.".to_string());
+            return;
+        }
+
         match value {
             Value::String(s) => {
+
                 // O(N) replacement without loops
                 let updated = self.ac.replace_all(s, &self.replacements);
                 if updated != *s {
@@ -50,15 +58,15 @@ impl SemanticHasher {
             }
             Value::Array(arr) => {
                 for v in arr.iter_mut() {
-                    self.traverse(v);
+                    self.traverse(v, depth + 1);
                 }
             }
             Value::Object(obj) => {
                 let mut new_map = Map::new();
-                // We use std::mem::take to avoid .clone() which costs memory
                 let old_map = std::mem::take(obj); 
                 for (k, mut v) in old_map {
-                    self.traverse(&mut v);
+                    self.traverse(&mut v, depth + 1);
+
                     
                     let compressed_key = self.ac.replace_all(&k, &self.replacements);
                     

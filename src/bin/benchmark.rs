@@ -34,7 +34,7 @@ fn main() {
     println!("-> OPENAI (GPT-4) TOKENS BURNED: {}", compressed_tokens);
 
     let reduction = (1.0 - (compressed_tokens as f64 / original_tokens as f64)) * 100.0;
-    
+
     println!("\n=> EMPIRICAL RESULT IN RUST (STRICT AST SAFETY):");
     println!("=> SAVED {:.1}% on OpenAI GPT-4 Costs", reduction);
     println!("=============================================\n");

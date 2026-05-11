@@ -1,15 +1,15 @@
 mod semantic_hasher;
 
 use axum::{
+    Json, Router,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::post,
-    Router, Json, response::IntoResponse,
-    http::{StatusCode, HeaderMap},
 };
+use semantic_hasher::SemanticHasher;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use semantic_hasher::SemanticHasher;
-
 
 #[tokio::main]
 async fn main() {
@@ -24,10 +24,12 @@ async fn main() {
 
     // Create the Axum async routing app
     let app = Router::new()
-        .route("/v1/chat/completions", post(move |h, p| openai_proxy_handler(h, p, Arc::clone(&hasher))))
+        .route(
+            "/v1/chat/completions",
+            post(move |h, p| openai_proxy_handler(h, p, Arc::clone(&hasher))),
+        )
         .route("/v1/agent/intent", post(agent_intent_handler))
         .layer(axum::extract::DefaultBodyLimit::max(512 * 1024)); // 🛡️ 512KB JSON Bomb Protection
-
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8089));
     tracing::info!("🚀 XCron Mainnet Semantic Proxy running on {}", addr);
@@ -38,8 +40,11 @@ async fn main() {
 }
 
 /// The ultra-low latency interceptor using Axum
-async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>, hasher: Arc<SemanticHasher>) -> impl IntoResponse {
-
+async fn openai_proxy_handler(
+    headers: HeaderMap,
+    Json(mut payload): Json<Value>,
+    hasher: Arc<SemanticHasher>,
+) -> impl IntoResponse {
     // 🛡️ WEB2 RELAYER DEFENSE: Load API key from environment to prevent secrets in git
     let valid_api_key = std::env::var("PROXY_AUTH_TOKEN")
         .expect("FATAL: PROXY_AUTH_TOKEN missing. Refusing to run insecurely.");
@@ -54,14 +59,17 @@ async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>
         .unwrap_or(false);
 
     if !is_authorized {
-        tracing::warn!("🚨 [SECURITY BLOCK] Unauthorized payload attempt rejected! Relayer Gas protected.");
+        tracing::warn!(
+            "🚨 [SECURITY BLOCK] Unauthorized payload attempt rejected! Relayer Gas protected."
+        );
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({
                 "status": "error",
                 "message": "Unauthorized Access. XCron Shield Active."
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
     tracing::info!("--- [INCOMING] Payload intercepted ---");
     // println!("{}", serde_json::to_string_pretty(&payload).unwrap());
@@ -69,52 +77,57 @@ async fn openai_proxy_handler(headers: HeaderMap, Json(mut payload): Json<Value>
     // 🛡️ Securely transform the payload using Tokio blocking pool to prevent thread starvation
     payload = tokio::task::spawn_blocking(move || {
         if let Some(messages) = payload.get_mut("messages") {
-            if let Some(arr) = messages.as_array_mut() {
-                if let Some(first_msg) = arr.get_mut(0) {
-                    if let Some(content) = first_msg.get("content") {
-                        let hashed_ast = hasher.hash(content.clone());
-                        first_msg["content"] = hashed_ast;
-                    }
-                }
+            if let Some(arr) = messages.as_array_mut()
+                && let Some(first_msg) = arr.get_mut(0)
+                && let Some(content) = first_msg.get("content")
+            {
+                let hashed_ast = hasher.hash(content.clone());
+                first_msg["content"] = hashed_ast;
             }
         } else {
             // Fallback for direct agent wrapper tests
             payload = hasher.hash(payload);
         }
         payload
-    }).await.unwrap();
-
+    })
+    .await
+    .unwrap();
 
     tracing::info!("--- [OUTGOING] Compressed Payload to OpenAI API ---");
     // println!("{}", serde_json::to_string_pretty(&payload).unwrap());
 
     // In Mainnet production: forward the `payload` to https://api.openai.com/v1/chat/completions
     // and stream the bytes back using reqwest. Here we return the compressed JSON to verify.
-    
+
     Json(json!({
         "status": "success",
         "message": "Proxy interception and Rust AST compression successful.",
         "compressed_sent": payload
-    })).into_response()
+    }))
+    .into_response()
 }
 
 /// Phase 1: API-First Escrow for Autonomous Agents (Programmable Money)
 /// Allows an AI Agent (the "Brain") to inject a Pre-Cognitive Intent (PCIT) directly into the XCron network
 /// without requiring a human xPortal signature. The Agent operates under the strict limits
 /// of the on-chain Agent Shield to prevent AI hallucinations.
-async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Value>) -> impl IntoResponse {
+async fn agent_intent_handler(
+    headers: HeaderMap,
+    Json(intent_payload): Json<Value>,
+) -> impl IntoResponse {
     // 🛡️ SECURITY 1: Verify Agent API Key
     // 🔴 XCRON-PROTECT: Removed silent fallback to dev token.
     // A missing ENV var in production would allow anyone to bypass the shield using the dev token.
-    let valid_api_key = std::env::var("AGENT_AUTH_TOKEN")
-        .expect("FATAL: AGENT_AUTH_TOKEN missing in environment. Refusing to start in insecure mode.");
+    let valid_api_key = std::env::var("AGENT_AUTH_TOKEN").expect(
+        "FATAL: AGENT_AUTH_TOKEN missing in environment. Refusing to start in insecure mode.",
+    );
 
     let is_authorized = headers
         .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .map(|s| {
             // Strip "Bearer " if present
-            let token = if s.starts_with("Bearer ") { &s[7..] } else { s };
+            let token = s.strip_prefix("Bearer ").unwrap_or(s);
             use subtle::ConstantTimeEq;
             token.as_bytes().ct_eq(valid_api_key.as_bytes()).unwrap_u8() == 1
         })
@@ -127,8 +140,9 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
             Json(json!({
                 "status": "error",
                 "message": "Unauthorized Agent Access. Quantum Shield Active."
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
 
     tracing::info!("🤖 [AGENT ESCROW] LLM Brain Intent Received. Initiating strict validation...");
@@ -143,9 +157,9 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
 
                     _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid erd1 checksum." }))).into_response(),
                 }
-            } else if addr.starts_with("0x") {
+            } else if let Some(stripped) = addr.strip_prefix("0x") {
                 // EVM Bridge Validation (Ethereum, BSC, etc.)
-                if addr.len() == 42 && addr[2..].chars().all(|c| c.is_ascii_hexdigit()) {
+                if addr.len() == 42 && stripped.chars().all(|c| c.is_ascii_hexdigit()) {
                     addr.to_string()
                 } else {
                     return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid EVM 0x address." }))).into_response();
@@ -172,8 +186,6 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
         None => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Missing target_contract." }))).into_response(),
     };
 
-
-
     let action = match intent_payload.get("action").and_then(|v| v.as_str()) {
         Some(act) => act,
         None => return (
@@ -185,7 +197,7 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
     let amount_egld = match intent_payload.get("amount_egld") {
         Some(Value::Number(n)) => {
             let amt = n.as_f64().unwrap_or(0.0);
-            if amt < 0.0 || amt > 1000.0 {
+            if !(0.0..=1000.0).contains(&amt) {
                 return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Exceeds 1000 EGLD hard limit." }))).into_response();
             }
             amt
@@ -193,13 +205,12 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
         Some(Value::String(s)) => {
             // Safe parse from string to avoid precision loss (Vector 57 Fix)
             match s.parse::<f64>() {
-                Ok(amt) if amt >= 0.0 && amt <= 1000.0 => amt,
+                Ok(amt) if (0.0..=1000.0).contains(&amt) => amt,
                 _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Hallucination Detected: Invalid amount string." }))).into_response(),
             }
         },
         _ => return (StatusCode::BAD_REQUEST, Json(json!({ "status": "error", "message": "Security Alert: Invalid or missing amount_egld." }))).into_response(),
     };
-
 
     // 🔗 BRAIN TO MUSCLE CONNECTION: Translate the valid AI Intent into the universal XSE ExecutionIntent format
     let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -207,7 +218,6 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
         Err(_) => 0, // Fallback safe timestamp
     };
     let client_reference_id = format!("xse_intent_{}", timestamp);
-
 
     let xse_execution_intent = json!({
         "intent_type": "autonomous_ai_action",
@@ -239,5 +249,6 @@ async fn agent_intent_handler(headers: HeaderMap, Json(intent_payload): Json<Val
         "client_reference_id": client_reference_id,
         "xse_intent_payload": xse_execution_intent,
         "shield_status": "Active - Hallucination Checks Passed"
-    })).into_response()
+    }))
+    .into_response()
 }
